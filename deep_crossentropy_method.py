@@ -2,7 +2,7 @@ from sklearn.neural_network import MLPClassifier
 import numpy as np
 import matplotlib.pyplot as plt
 import gym
-
+from sklearn.externals import joblib
 class DeepCrossentropy:
     """
     a class using deep crossentropy method to solve the gym game env
@@ -16,24 +16,26 @@ class DeepCrossentropy:
     private:
     __hidden_layer_size - the hidden layer size of the agent
     __nn_max_iter -nerual network iteration times
+    __fid - used to show the progress
+    __ax1 - used to show the figure of mean reward and reward threshold
+    __ax2 - used to show the hist of the rewards batch
     """
 
-    __hidden_layer_size=(20,20)
-    __nn_max_iter=1
+    
 
-    def __init__(self,_env):
+    def __init__(self,_env,hidden_layer_size=(20,20),nn_max_iter=1):
         self.env=_env
+        self.__hidden_layer_size=hidden_layer_size
+        self.__nn_max_iter=nn_max_iter
         self.agent=MLPClassifier(hidden_layer_sizes=self.__hidden_layer_size,
         activation="tanh",warm_start=True,max_iter=self.__nn_max_iter)
         self.n_actions=self.env.action_space.n
         self.agent.fit([self.env.reset()]*self.n_actions,list(range(self.n_actions)))
-        self.__fig=plt.figure(figsize=[8,4])
-        self.__ax1= self.__fig.add_subplot(111)
-        self.__ax2= self.__fig.add_subplot(122)
-        self.__fig.show()
 
 
-    def __generate_sessions(self,t_max=1000):
+
+
+    def __generate_sessions(self,t_max=1000,actions_times=5):
         """
         generate session about the game
         
@@ -57,12 +59,14 @@ class DeepCrossentropy:
 
             a=np.random.choice(a=len(probs),size=1,p=probs)[0]
 
-            new_s,r,done,info=self.env.step(a)
+            for j in range(actions_times):
+                new_s,r,done,info=self.env.step(a)
+                total_reward+=r
+                if done:break
 
             states.append(s)
             actions.append(a)
-            total_reward+=r
-
+            
             s=new_s
             if done:break
         return states,actions,total_reward
@@ -83,12 +87,17 @@ class DeepCrossentropy:
 
         reward_threshold=np.percentile(rewards_batch,percentile)
 
-        elite_states=[j for i in range(len(rewards_batch)) if rewards_batch[i]>=reward_threshold for j in states_batch[i]]
-        elite_actions=[j for i in range(len(rewards_batch)) if rewards_batch[i]>=reward_threshold for j in actions_batch[i]]
+        if np.max(rewards_batch)>reward_threshold:
+            elite_states=[j for i in range(len(rewards_batch)) if rewards_batch[i]>reward_threshold for j in states_batch[i]]
+            elite_actions=[j for i in range(len(rewards_batch)) if rewards_batch[i]>reward_threshold for j in actions_batch[i]]
+        else:
+            elite_states=[j for i in range(len(rewards_batch)) if rewards_batch[i]>=reward_threshold for j in states_batch[i]]
+            elite_actions=[j for i in range(len(rewards_batch)) if rewards_batch[i]>=reward_threshold for j in actions_batch[i]]
+
 
         return elite_states,elite_actions
 
-    def __show_progress(self,rewards_batch,log,percentile,reward_range=[-990,+10]):
+    def __show_progress(self,rewards_batch,log,percentile,reward_range=[-990,+10],show_progress=False):
         """
         A convenience function that displays training progress. 
         
@@ -107,22 +116,26 @@ class DeepCrossentropy:
 
         print("mean reward = %.3f, reward threshold = %.3f"%(mean_reward,reward_threshold))
 
-        self.__ax1.clear()
-        self.__ax1.plot(list(zip(*log))[0],label="Mean rewards")
-        self.__ax1.plot(list(zip(*log))[1],label="rewards threshold")
-        self.__ax1.legend()
-        self.__ax1.grid()
+        if show_progress:
+            plt.figure(figsize=[8,4])
+            plt.subplot(1,2,1)
+            plt.plot(list(zip(*log))[0],label="Mean rewards")
+            plt.plot(list(zip(*log))[1],label="rewards threshold")
+            plt.legend()
+            plt.grid()
         
-        self.__ax2.clear()
-        self.__ax2.hist(rewards_batch,reward_range)
-        self.__ax2.vlines(np.percentile(rewards_batch,percentile),[0],[100],label="percentile",color="red")
-        self.__ax2.legend()
-        self.__ax2.grid()
+            plt.subplot(1,2,2)
+            plt.hist(rewards_batch,range=reward_range)
+            plt.vlines(np.percentile(rewards_batch,percentile),[0],[100],label="percentile",color="red")
+            plt.legend()
+            plt.grid()
 
-        self.__fig.canvas.draw()
+            plt.ion()
+            plt.pause(2)
+            plt.close()
 
 
-    def fit(self,n_sessions=100,percentile=50,iter=100,show=False):
+    def fit(self,n_sessions=100,percentile=50,iter=100,t_max=1000,actions_times=5,show_progress=False):
         """
         training the model
 
@@ -138,7 +151,7 @@ class DeepCrossentropy:
 
         for i in range(iter):
 
-            sessions=[self.__generate_sessions() for i in range(n_sessions)]
+            sessions=[self.__generate_sessions(t_max=t_max,actions_times=actions_times) for i in range(n_sessions)]
 
             states_batch,actions_batch,rewards_batch=map(np.array,zip(*sessions))
 
@@ -146,22 +159,45 @@ class DeepCrossentropy:
 
             self.agent.fit(elite_states,elite_actions)
 
-            if show:
-                self.__show_progress(rewards_batch,log,percentile,reward_range=[0,np.max(rewards_batch)])
+        
+            self.__show_progress(rewards_batch,log,percentile,reward_range=[min(0,np.min(rewards_batch)),np.max(rewards_batch)],show_progress=show_progress)
 
     def predict(self,states):
         probs=self.agent.predict_proba(states)
 
         actions=[]
         for i in probs:
-            a=np.random.choice(a=len(probs),size=1,p=probs)[0]
+            a=np.random.choice(a=len(i),size=1,p=i)[0]
 
             actions.append(a)
 
         return actions
 
+    def save(self,file:str):
+        joblib.dump(self.agent,file)
+    def load(self,file:str):
+        self.agent=joblib.load(file)
 
 
-dc=DeepCrossentropy(gym.make("CartPole-v0").env)
+env=gym.make("MountainCar-v0").env
 
-dc.fit(show=True)
+dc=DeepCrossentropy(env)
+dc.load("MountainCar_v0_model.sav")
+dc.fit(iter=100,show_progress=False,percentile=70,actions_times=1,t_max=3000)
+dc.save("MountainCar_v0_model.sav")
+#dc.load("CartPole_v1_model.sav")
+s=env.reset()
+
+fig=plt.figure()
+ax=fig.add_subplot(111)
+fig.show()
+
+while True:
+    a=dc.predict([s])[0]
+
+    new_s,r,done,info=env.step(a)
+
+    ax.clear()
+    ax.imshow(env.render("rgb_array"))
+    fig.canvas.show()
+   
