@@ -23,14 +23,11 @@ class DeepCrossentropy:
 
     
 
-    def __init__(self,_env,hidden_layer_size=(20,20),nn_max_iter=1):
-        self.env=_env
-        self.__hidden_layer_size=hidden_layer_size
-        self.__nn_max_iter=nn_max_iter
-        self.agent=MLPClassifier(hidden_layer_sizes=self.__hidden_layer_size,
-        activation="tanh",warm_start=True,max_iter=self.__nn_max_iter)
-        self.n_actions=self.env.action_space.n
-        self.agent.fit([self.env.reset()]*self.n_actions,list(range(self.n_actions)))
+    def __init__(self,env,agent,actions_space):
+        self.env=env
+        self.agent=agent
+        self.actions_space=actions_space
+        
 
 
 
@@ -57,7 +54,7 @@ class DeepCrossentropy:
 
             probs=self.agent.predict_proba([s])[0]
 
-            a=np.random.choice(a=len(probs),size=1,p=probs)[0]
+            a=self.actions_space[np.random.choice(a=len(probs),size=1,p=probs)[0]]
 
             for j in range(actions_times):
                 new_s,r,done,info=self.env.step(a)
@@ -68,7 +65,8 @@ class DeepCrossentropy:
             actions.append(a)
             
             s=new_s
-            if done:break
+            if done:
+                break
         return states,actions,total_reward
 
     def __select_elites(self,states_batch,actions_batch,rewards_batch,percentile=50):
@@ -167,7 +165,7 @@ class DeepCrossentropy:
 
         actions=[]
         for i in probs:
-            a=np.random.choice(a=len(i),size=1,p=i)[0]
+            a=self.actions_space[np.random.choice(a=len(i),size=1,p=i)[0]]
 
             actions.append(a)
 
@@ -180,12 +178,20 @@ class DeepCrossentropy:
 
 
 env=gym.make("MountainCar-v0").env
+n_actions=env.action_space.n
+agent=MLPClassifier(hidden_layer_sizes=(20,30,50,30,20),
+        activation="tanh",warm_start=True,max_iter=5)
+agent.fit([env.reset()]*2,[0,2])
 
-dc=DeepCrossentropy(env)
+dc=DeepCrossentropy(env,agent,[0,2])
+# dc.load("MountainCar_v0_model.sav")
+at=[10,8,5,3,1]
+pt=[80,70,60,50,50]
+
+# for i,j in zip(at,pt):
+#     dc.fit(iter=200,show_progress=False,percentile=j,actions_times=i,t_max=5000,n_sessions=100)
+# dc.save("MountainCar_v0_model.sav")
 dc.load("MountainCar_v0_model.sav")
-dc.fit(iter=100,show_progress=False,percentile=70,actions_times=1,t_max=3000)
-dc.save("MountainCar_v0_model.sav")
-#dc.load("CartPole_v1_model.sav")
 s=env.reset()
 
 fig=plt.figure()
@@ -197,7 +203,7 @@ while True:
 
     new_s,r,done,info=env.step(a)
 
+    s=new_s
     ax.clear()
     ax.imshow(env.render("rgb_array"))
     fig.canvas.show()
-   
