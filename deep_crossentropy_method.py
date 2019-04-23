@@ -10,15 +10,11 @@ class DeepCrossentropy:
     parameters:
     public:
     env - the gym game
-    agent - MLPClassifier instance, used to get the actions from different states
+    agent - neural network, used to get the actions from different states
     n_actions - the size of actions space
 
     private:
-    __hidden_layer_size - the hidden layer size of the agent
-    __nn_max_iter -nerual network iteration times
-    __fid - used to show the progress
-    __ax1 - used to show the figure of mean reward and reward threshold
-    __ax2 - used to show the hist of the rewards batch
+
     """
 
     
@@ -32,7 +28,7 @@ class DeepCrossentropy:
 
 
 
-    def __generate_sessions(self,t_max=1000,actions_times=5):
+    def __generate_sessions(self,t_max,actions_times):
         """
         generate session about the game
         
@@ -133,7 +129,7 @@ class DeepCrossentropy:
             plt.close()
 
 
-    def fit(self,n_sessions=100,percentile=50,iter=100,t_max=1000,actions_times=5,show_progress=False):
+    def fit(self,n_sessions=100,percentile=50,iter=100,t_max=1000,actions_times=1,show_progress=False):
         """
         training the model
 
@@ -176,34 +172,3 @@ class DeepCrossentropy:
     def load(self,file:str):
         self.agent=joblib.load(file)
 
-
-env=gym.make("MountainCar-v0").env
-n_actions=env.action_space.n
-agent=MLPClassifier(hidden_layer_sizes=(20,30,50,30,20),
-        activation="tanh",warm_start=True,max_iter=5)
-agent.fit([env.reset()]*2,[0,2])
-
-dc=DeepCrossentropy(env,agent,[0,2])
-# dc.load("MountainCar_v0_model.sav")
-at=[10,8,5,3,1]
-pt=[80,70,60,50,50]
-
-# for i,j in zip(at,pt):
-#     dc.fit(iter=200,show_progress=False,percentile=j,actions_times=i,t_max=5000,n_sessions=100)
-# dc.save("MountainCar_v0_model.sav")
-dc.load("MountainCar_v0_model.sav")
-s=env.reset()
-
-fig=plt.figure()
-ax=fig.add_subplot(111)
-fig.show()
-
-while True:
-    a=dc.predict([s])[0]
-
-    new_s,r,done,info=env.step(a)
-
-    s=new_s
-    ax.clear()
-    ax.imshow(env.render("rgb_array"))
-    fig.canvas.show()
