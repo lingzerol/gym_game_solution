@@ -20,7 +20,7 @@ while(True):
     new_s,r,done,info=env.step(a)
 
     s=new_s
-    os.system('cls')
+    os.system('clear')
     env.render()
     time.sleep(1)
     if(done):

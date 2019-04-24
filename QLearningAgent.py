@@ -2,6 +2,7 @@ import numpy as np
 import gym
 from collections import defaultdict
 import pickle
+from gym.core import ObservationWrapper
 import dill
 class QLearningAgent:
     def __init__(self, alpha, epsilon, discount, get_legal_actions):
@@ -117,6 +118,42 @@ class QLearningAgent:
         else:
             chosen_action=possible_actions[np.random.choice(a=len(possible_actions),size=1)[0]]
         return chosen_action
+
+class EVSarsaAgent(QLearningAgent):
+    """ 
+    An agent that changes some of q-learning functions to implement Expected Value SARSA. 
+    Note: this demo assumes that your implementation of QLearningAgent.update uses get_value(next_state).
+    If it doesn't, please add
+        def update(self, state, action, reward, next_state):
+            and implement it for Expected Value SARSA's V(s')
+    """
+    
+    def get_value(self, state):
+        """ 
+        Returns Vpi for current state under epsilon-greedy policy:
+          V_{pi}(s) = sum _{over a_i} {pi(a_i | s) * Q(s, a_i)}
+          
+        Hint: all other methods from QLearningAgent are still accessible.
+        """
+        epsilon = self.epsilon
+        possible_actions = self.get_legal_actions(state)
+
+        #If there are no legal actions, return 0.0
+        if len(possible_actions) == 0:
+            return 0.0
+
+        
+        pi={action:epsilon/len(possible_actions) for action in possible_actions}
+        pi[self.get_best_action(state)]+=1-epsilon
+        state_value=sum(pi[action]*self.get_qvalue(state,action) for action in possible_actions)
+        
+        return state_value
+
+
+class Binarizer(ObservationWrapper):
+    
+    def _observation(self, state):
+        pass
 
 
 def load(file:str):
