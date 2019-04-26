@@ -4,7 +4,7 @@ import numpy as np
 import gym
 import matplotlib.pyplot as plt
 import QLearningAgent as QL
-import Training as tn
+import PlayAndTrain as pat
 from pandas import DataFrame
 
 
@@ -52,7 +52,7 @@ def QL_CartPole_v1():
     sarsa_rewards = []
 
     for i in range(5000):
-        sarsa_rewards.append(tn.play_and_train(env, agent))
+        sarsa_rewards.append(pat.play_and_train(env, agent))
        
         if(i % 100==0):
             print('EVSARSA mean reward =', np.mean(sarsa_rewards[-100:]))

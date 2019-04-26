@@ -1,5 +1,5 @@
 import gym
-from Training import play_and_train 
+from PlayAndTrain import play_and_train 
 from IPython.display import clear_output
 import numpy as np
 import matplotlib.pyplot as plt

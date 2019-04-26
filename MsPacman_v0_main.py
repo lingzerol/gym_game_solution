@@ -2,7 +2,7 @@ import QLearningAgent as QL
 import numpy as np
 import gym
 import matplotlib.pyplot as plt
-from Training import play_and_train
+from PlayAndTrain import play_and_train
 
 env=gym.make("MsPacman-v0")
 
