@@ -80,4 +80,9 @@ def QL_CartPole_v1():
             env.reset()
 
 
-QL_CartPole_v1()
+def AQL_CartPole_v1():
+    env = gym.make("CartPole-v0").env
+    agent=QL.ApproximateQLearningAgent(env=env,alpha=1e-4,epsilon=0.5,gamma=0.99,n_actions=env.action_space.n,state_dim=env.observation_space.shape)
+
+    rewards=agent.fit(iter=100)
+    print(rewards)
