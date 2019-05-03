@@ -11,6 +11,7 @@ import keras
 from tqdm import trange
 from pandas import DataFrame
 import dill
+import getopt,sys
 class FrameBuffer(Wrapper):
     """
     memory the latest n_frames state of the environment
@@ -246,10 +247,10 @@ class DQNAgent:
         with tf.device("/device:GPU:0"):
             config=tf.ConfigProto()
             config.gpu_options.allow_growth=True
-            config.gpu_options.per_process_gpu_memory_fraction=0.1
+            config.gpu_options.per_process_gpu_memory_fraction=0.2
             self.sess=tf.Session(config=config)
-            self.network=DQNNetwork(self.sess,"network",self.state_shape,n_actions,epsilon=epsilon,reuse=reuse)
-            self.target_network=DQNNetwork(self.sess,"target_network",state_dim,n_actions,epsilon=epsilon,reuse=reuse)
+            self.network=DQNNetwork(self.sess,"network",self.state_shape,self.n_actions,epsilon=epsilon,reuse=reuse)
+            self.target_network=DQNNetwork(self.sess,"target_network",self.state_shape,self.n_actions,epsilon=epsilon,reuse=reuse)
             with tf.variable_scope("DQNAgent",reuse=reuse):
                 self.states=tf.placeholder("float32",shape=(None,)+self.state_shape,name="states")
                 self.actions=tf.placeholder("int32",shape=[None],name="actions")
@@ -320,6 +321,8 @@ class DQNAgent:
         return reward
 
     def fit(self,t_max=10**5):
+        if(len(self.exp_replay)<self.exp_replay.size):
+            self.play_and_record(self.exp_replay.size)
         mean_rw_history = []
         td_loss_history = []
         
@@ -337,15 +340,24 @@ class DQNAgent:
                 self.__load_weights_into_target_network()
                 self.network.epsilon = max(self.network.epsilon * 0.99, 0.01)
                 mean_rw_history.append(self.evaluate(n_games=3))
-                self.save("./BreakoutDeterministic/model/model.ckpt",int(i/100))
-                with open("./BreakoutDeterministic/history/mean_rw_history-"+str(int(i/100)), "wb") as f:
-                    dill.dump(mean_rw_history,f)
-                with open("./BreakoutDeterministic/history/td_loss_history-"+str(int(i/100)), "wb") as f:
-                    dill.dump(td_loss_history,f)
-            if i % 100 == 0:
-                print("index %i"%(i),end=":\n")
-                print("buffer size = %i, epsilon = %.5f" % (len(self.exp_replay), self.network.epsilon),end=",")
-                print(" mean_reward:%0.5f, td_loss:%0.5f"%(mean_rw_history[-1],td_loss_history[-1]))
+                if i % 100 == 0:
+                    print("index %i"%(i),end=":\n")
+                    print("buffer size = %i, epsilon = %.5f" % (len(self.exp_replay), self.network.epsilon),end=",")
+                    print(" mean_reward:%0.5f, td_loss:%0.5f"%(mean_rw_history[-1],td_loss_history[-1]))
+                    self.save("./BreakoutDeterministic/model/model.ckpt",int(i/100))
+                with open("./BreakoutDeterministic/history/mean_rw_history", "a+") as f:
+                    for i in mean_rw_history:
+                        f.write(str(i)+" ")
+                    f.write("\n")
+                    f.close()
+                    mean_rw_history.clear()
+                with open("./BreakoutDeterministic/history/td_loss_history", "a+") as f:
+                    for i in td_loss_history:
+                        f.write(str(i)+" ")
+                    f.write("\n")
+                    f.close()
+                    td_loss_history.clear()
+ 
         return mean_rw_history,td_loss_history
 
 
@@ -409,21 +421,37 @@ def show(mean_rw_history,td_loss_history):
     plt.show()
 
 
-env=makeAtarienv("BreakoutDeterministic-v4")
-env.reset()
-n_actions = env.action_space.n
-state_dim = env.observation_space.shape
+def main():
+    file=""
+    global_step=0
+    if(len(sys.argv)>1):
+        try:
+            options,argsp=getopt.getopt(sys.argv[1:],"f:g:",["file=","global_step="])
+        except getopt.GetoptError:
+            sys.exit()
+        for option,value in options:
+            if option in ("-f","--file"):
+                file=value
+            if option in ("-g","--global_step"):
+                global_step=int(value)
+    print(file,global_step)
+    env=makeAtarienv("BreakoutDeterministic-v4")
+    env.reset()
+    n_actions = env.action_space.n
+    state_dim = env.observation_space.shape
 
-agent=DQNAgent(env,epsilon=0.5,load_sess=True,file="./BreakoutDeterministic/model/model.ckpt",global_step=435)
-mean_rw_history,td_loss_history=agent.fit()
-with open("mean_rw_history", "wb") as f:
-        dill.dump(mean_rw_history,f)
-with open("td_loss_history", "wb") as f:
-        dill.dump(td_loss_history,f)
-agent.save("./model.ckpt")
+    load_sess=False
+    if file!="" and global_step!=0:
+        load_sess=True
+    agent=DQNAgent(env,epsilon=0.5,load_sess=load_sess,file=file,global_step=global_step)
+    mean_rw_history,td_loss_history=agent.fit()
 
-import gym.wrappers
-env.reset()
-env_monitor = gym.wrappers.Monitor(env,directory="./BreakoutDeterministic/videos",force=True)
-sessions = [agent.evaluate(n_games=1) for _ in range(100)]
-env_monitor.close()
+    import gym.wrappers
+    env.reset()
+    env_monitor = gym.wrappers.Monitor(env,directory="./BreakoutDeterministic/videos",force=True)
+    sessions = [agent.evaluate(n_games=1) for _ in range(100)]
+    env_monitor.close()
+
+
+if __name__=='__main__':
+    main()
