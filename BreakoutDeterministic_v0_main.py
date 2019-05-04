@@ -383,7 +383,7 @@ class DQNAgent:
         action=self.network.get_actions(qvalues)
         return action
 
-    def predict(self,state);
+    def predict(self,state):
         qvalues=self.network.get_qvalues(state)
         action=self.network.get_best_actions(qvalues)
         return action
