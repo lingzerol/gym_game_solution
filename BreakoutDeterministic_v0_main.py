@@ -180,7 +180,7 @@ class DQNNetwork:
     """
     class implement deep q learning
     """
-    def __init__(self,sess,name,state_shape,n_actions,epsilon=0,reuse=False):
+    def __init__(self,sess,name,state_shape,n_actions,epsilon=0,GPU_enable=False,reuse=False):
         """
         parameters:
         name - variable namespace
@@ -189,10 +189,15 @@ class DQNNetwork:
         epsilon - using greedy-epsilon strategy
         resuse - resuse the variable in the variable namespace
         """
+        if GPU_enable:
+            device="/device:GPU:0"
+        else:
+            device="/cpu:0"
+        
         self.sess=sess
         with tf.variable_scope(name,reuse=reuse):
-            #with tf.device("/cpu:0"):
-            with tf.device("/device:GPU:0"):
+            with tf.device(device):
+            #with tf.device("/device:GPU:0"):
                 self.network=keras.models.Sequential()
                 self.network.add(Conv2D(16,(3,3),strides=2,activation="relu",input_shape=state_shape))
                 self.network.add(Conv2D(32,(3,3),strides=2,activation="relu"))
@@ -232,25 +237,30 @@ class DQNNetwork:
         should_explore=np.random.choice([0,1],batch_size,p=[1-epsilon,epsilon])
         return np.where(should_explore,random_actions,best_action)
 
+    def get_best_actions(self,qvalues):
+        return qvalues.argmax(axis=-1)
 
 class DQNAgent:
-    def __init__(self,env,epsilon=0,gamma=0.99,boundary=500,decrease_epsilon=0.99,load_sess=False,file="",global_step=1,reuse=False):
+    def __init__(self,env,epsilon=0,gamma=0.99,boundary=500,decrease_epsilon=0.99,load_sess=False,file="",GPU_enable=False,global_step=1,reuse=False):
 
         self.env=env
         self.state_shape=env.observation_space.shape
         self.n_actions=env.action_space.n
         self.epsilon=epsilon
-        self.exp_replay=ReplayBuffer(10**5)
-
-
-        #with tf.device("/cpu:0"):
-        with tf.device("/device:GPU:0"):
+        self.exp_replay=ReplayBuffer(4000)
+        if GPU_enable:
+            device="/device:GPU:0"
+        else:
+            device="/cpu:0"
+        
+        with tf.device(device):
+        #with tf.device("/device:GPU:0"):
             config=tf.ConfigProto()
             config.gpu_options.allow_growth=True
             config.gpu_options.per_process_gpu_memory_fraction=0.2
             self.sess=tf.Session(config=config)
-            self.network=DQNNetwork(self.sess,"network",self.state_shape,self.n_actions,epsilon=epsilon,reuse=reuse)
-            self.target_network=DQNNetwork(self.sess,"target_network",self.state_shape,self.n_actions,epsilon=epsilon,reuse=reuse)
+            self.network=DQNNetwork(self.sess,"network",self.state_shape,self.n_actions,epsilon=epsilon,GPU_enable=GPU_enable,reuse=reuse)
+            self.target_network=DQNNetwork(self.sess,"target_network",self.state_shape,self.n_actions,epsilon=epsilon,GPU_enable=GPU_enable,reuse=reuse)
             with tf.variable_scope("DQNAgent",reuse=reuse):
                 self.states=tf.placeholder("float32",shape=(None,)+self.state_shape,name="states")
                 self.actions=tf.placeholder("int32",shape=[None],name="actions")
@@ -262,7 +272,9 @@ class DQNAgent:
                 self.gamma=gamma
 
                 self.current_qvalues=self.network.get_symbolic_qvalues(self.states)
-                self.current_action_qvalues=tf.reduce_sum(tf.one_hot(self.actions,self.n_actions)*self.current_qvalues,axis=1)
+                self.current_action_qvalues_one_hot=tf.one_hot(self.actions,self.n_actions)
+                self.current_action_qvalues_for_every=self.current_action_qvalues_one_hot*self.current_qvalues
+                self.current_action_qvalues=tf.reduce_sum(self.current_action_qvalues_for_every,axis=1)
 
                 self.next_qvalues_target=self.target_network.get_symbolic_qvalues(self.next_ss)
                 self.next_state_values_target=tf.reduce_max(self.next_qvalues_target,axis=-1)
@@ -276,14 +288,14 @@ class DQNAgent:
         if load_sess==True:
             self.load(file,global_step)
         self.sess.run(tf.global_variables_initializer())
-
+        #self.sess.graph.finalize()
         self.times=0
 
 
     def __load_weights_into_target_network(self):
         assigns=[]
         for w_agent,w_target in zip(self.network.weights,self.target_network.weights):
-            assigns.append(tf.assign(w_agent,w_target,validate_shape=True))
+            assigns.append(tf.assign(w_target,w_agent,validate_shape=True))
         self.sess.run(assigns)
 
     def __sample_batch(self,batch_size=64):
@@ -309,7 +321,7 @@ class DQNAgent:
 
         reward=0.0
         for i in range(n_step):
-            action=self.predict([s])[0]
+            action=self.predict_epsilon([s])[0]
             next_s,r,done,_=self.env.step(action)
 
             self.exp_replay.add(s,action,r,next_s,done)
@@ -325,16 +337,19 @@ class DQNAgent:
             self.play_and_record(self.exp_replay.size)
         mean_rw_history = []
         td_loss_history = []
-        
+        bounce=2
         for i in range(t_max):
 
             # play
             self.play_and_record(10)
 
             # train
-            _, loss_t = self.sess.run([self.train_step, self.td_loss], self.__sample_batch(batch_size=64))
+            _, loss_t = self.sess.run([self.train_step, self.td_loss], self.__sample_batch(batch_size=256))
             td_loss_history.append(loss_t)
             
+            if i%100000==0:
+                 self.save("./BreakoutDeterministic/model/model.ckpt",i)
+
             # adjust agent parameters
             if i % 500 == 0:
                 self.__load_weights_into_target_network()
@@ -344,7 +359,7 @@ class DQNAgent:
                     print("index %i"%(i),end=":\n")
                     print("buffer size = %i, epsilon = %.5f" % (len(self.exp_replay), self.network.epsilon),end=",")
                     print(" mean_reward:%0.5f, td_loss:%0.5f"%(mean_rw_history[-1],td_loss_history[-1]))
-                    self.save("./BreakoutDeterministic/model/model.ckpt",int(i/100))
+
                 with open("./BreakoutDeterministic/history/mean_rw_history", "a+") as f:
                     for i in mean_rw_history:
                         f.write(str(i)+" ")
@@ -357,13 +372,20 @@ class DQNAgent:
                     f.write("\n")
                     f.close()
                     td_loss_history.clear()
- 
+        
+        self.save("./BreakoutDeterministic/model/model.ckpt",int(t_max))
+        
         return mean_rw_history,td_loss_history
 
 
-    def predict(self,state):
+    def predict_epsilon(self,state):
         qvalues=self.network.get_qvalues(state)
         action=self.network.get_actions(qvalues)
+        return action
+
+    def predict(self,state);
+        qvalues=self.network.get_qvalues(state)
+        action=self.network.get_best_actions(qvalues)
         return action
 
     def load(self,file:str,global_step=1):
@@ -424,17 +446,27 @@ def show(mean_rw_history,td_loss_history):
 def main():
     file=""
     global_step=0
+    epsilon=0.5
+    GPU_enable=False
+    times=0
     if(len(sys.argv)>1):
         try:
-            options,argsp=getopt.getopt(sys.argv[1:],"f:g:",["file=","global_step="])
+            options,argsp=getopt.getopt(sys.argv[1:],"p:s:e:gt:",["path=","global_step=","epsilon=","gpu","times"])
         except getopt.GetoptError:
             sys.exit()
         for option,value in options:
-            if option in ("-f","--file"):
+            if option in ("-p","--path"):
                 file=value
-            if option in ("-g","--global_step"):
+            if option in ("-s","--global_step"):
                 global_step=int(value)
-    print(file,global_step)
+            if option in ("-e","--epsilon"):
+                epsilon=float(value)
+            if option in ("-g","--gpu"):
+                GPU_enable=True
+            if option in ("-t","--times"):
+                times=int(value)
+
+    print(file,global_step,epsilon,GPU_enable)
     env=makeAtarienv("BreakoutDeterministic-v4")
     env.reset()
     n_actions = env.action_space.n
@@ -443,14 +475,33 @@ def main():
     load_sess=False
     if file!="" and global_step!=0:
         load_sess=True
-    agent=DQNAgent(env,epsilon=0.5,load_sess=load_sess,file=file,global_step=global_step)
-    mean_rw_history,td_loss_history=agent.fit()
+    print(load_sess)
+    agent=DQNAgent(env,epsilon=epsilon,load_sess=load_sess,file=file,global_step=global_step,GPU_enable=GPU_enable)
+    while True:
+        if times>0:
+            mean_rw_history,td_loss_history=agent.fit(times)
+        decision=input("do you want to continue fitting the model?[Y|N]: ")
+        if decision=="n" or decision=="N":
+            break
+        times=int(input("the fitting times:"))
+    
+    
+    
+    while True:
+        decision=input("Do you want to show the video?[Y|N]: ")
+        if decision=="n" or decision=="N":
+            break
+        s=env.reset()
 
-    import gym.wrappers
-    env.reset()
-    env_monitor = gym.wrappers.Monitor(env,directory="./BreakoutDeterministic/videos",force=True)
-    sessions = [agent.evaluate(n_games=1) for _ in range(100)]
-    env_monitor.close()
+        while True:
+
+            env.render()
+
+            a=agent.predict([s])[0]
+            next_s,r,done,_=env.step(a)
+            s=next_s
+            if done:
+                break
 
 
 if __name__=='__main__':
